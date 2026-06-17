@@ -3,14 +3,14 @@ export type BoardState = number[][];
 export interface Move {
   row: number;
   col: number;
-  player: number; // 1=black, 2=white
+  player: number;
   timestamp: number;
 }
 
 export interface GameRecord {
   id: string;
   moves: Move[];
-  winner: number | null; // 0=draw, 1=black, 2=white, null=ongoing
+  winner: number | null;
   createdAt: string;
   duration: number;
 }
@@ -18,7 +18,15 @@ export interface GameRecord {
 export interface AIConfig {
   depth: number;
   enabled: boolean;
-  playerColor: number; // AI plays as this color
+  playerColor: number;
 }
 
-export type GameStatus = 'idle' | 'playing' | 'finished' | 'replaying';
+export interface OngoingGame {
+  id: string;
+  currentPlayer: number;
+  moves: Move[];
+  winner: number | null;
+  createdAt: string;
+}
+
+export type GameStatus = 'idle' | 'playing' | 'finished' | 'replaying' | 'spectating';

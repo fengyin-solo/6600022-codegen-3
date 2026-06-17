@@ -23,26 +23,47 @@
                 {{ statusText }}
               </span>
             </div>
-            <div class="flex justify-between">
-              <span class="text-gray-400">当前回合</span>
-              <span class="flex items-center gap-1">
-                <span class="inline-block w-3 h-3 rounded-full" :class="store.currentPlayer === 1 ? 'bg-gray-800 border border-gray-600' : 'bg-white'"></span>
-                {{ store.currentPlayer === 1 ? '黑棋' : '白棋' }}
-              </span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-gray-400">手数</span>
-              <span class="text-white">{{ store.currentMoveCount }}</span>
-            </div>
-            <div v-if="store.winner !== null" class="flex justify-between">
-              <span class="text-gray-400">结果</span>
-              <span class="font-bold" :class="store.winner === 1 ? 'text-gray-300' : store.winner === 2 ? 'text-white' : 'text-yellow-400'">
-                {{ store.winner === 1 ? '黑棋胜' : store.winner === 2 ? '白棋胜' : '平局' }}
-              </span>
-            </div>
+            <template v-if="store.status === 'spectating'">
+              <div class="flex justify-between">
+                <span class="text-gray-400">当前回合</span>
+                <span class="flex items-center gap-1">
+                  <span class="inline-block w-3 h-3 rounded-full" :class="store.spectatingCurrentPlayer === 1 ? 'bg-gray-800 border border-gray-600' : 'bg-white'"></span>
+                  {{ store.spectatingCurrentPlayer === 1 ? '黑棋' : '白棋' }}
+                </span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-gray-400">手数</span>
+                <span class="text-white">{{ store.spectatingMoveCount }}</span>
+              </div>
+              <div v-if="store.spectatingWinner !== null" class="flex justify-between">
+                <span class="text-gray-400">结果</span>
+                <span class="font-bold" :class="store.spectatingWinner === 1 ? 'text-gray-300' : store.spectatingWinner === 2 ? 'text-white' : 'text-yellow-400'">
+                  {{ store.spectatingWinner === 1 ? '黑棋胜' : store.spectatingWinner === 2 ? '白棋胜' : '平局' }}
+                </span>
+              </div>
+            </template>
+            <template v-else>
+              <div class="flex justify-between">
+                <span class="text-gray-400">当前回合</span>
+                <span class="flex items-center gap-1">
+                  <span class="inline-block w-3 h-3 rounded-full" :class="store.currentPlayer === 1 ? 'bg-gray-800 border border-gray-600' : 'bg-white'"></span>
+                  {{ store.currentPlayer === 1 ? '黑棋' : '白棋' }}
+                </span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-gray-400">手数</span>
+                <span class="text-white">{{ store.currentMoveCount }}</span>
+              </div>
+              <div v-if="store.winner !== null" class="flex justify-between">
+                <span class="text-gray-400">结果</span>
+                <span class="font-bold" :class="store.winner === 1 ? 'text-gray-300' : store.winner === 2 ? 'text-white' : 'text-yellow-400'">
+                  {{ store.winner === 1 ? '黑棋胜' : store.winner === 2 ? '白棋胜' : '平局' }}
+                </span>
+              </div>
+            </template>
           </div>
 
-          <div class="mt-4 flex gap-2">
+          <div v-if="store.status !== 'spectating'" class="mt-4 flex gap-2">
             <button
               @click="store.startGame()"
               class="flex-1 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors text-sm font-medium"
@@ -50,10 +71,18 @@
               {{ store.status === 'playing' ? '重新开始' : '开始游戏' }}
             </button>
           </div>
+          <div v-else class="mt-4">
+            <button
+              @click="store.stopSpectating()"
+              class="w-full py-2 bg-red-600/20 border border-red-600/50 text-red-400 rounded-lg hover:bg-red-600/30 transition-colors text-sm"
+            >
+              退出观战
+            </button>
+          </div>
         </div>
 
-        <!-- AI Settings -->
-        <div class="bg-gray-900 rounded-xl p-4 border border-gray-700">
+        <!-- AI Settings (only show when not spectating) -->
+        <div v-if="store.status !== 'spectating'" class="bg-gray-900 rounded-xl p-4 border border-gray-700">
           <h3 class="text-lg font-bold text-green-400 mb-3">AI 设置</h3>
           <div class="space-y-3">
             <div class="flex items-center justify-between">
@@ -108,8 +137,11 @@
           </div>
         </div>
 
-        <!-- Replay Panel -->
-        <ReplayPanel />
+        <!-- Spectator Panel -->
+        <SpectatorPanel />
+
+        <!-- Replay Panel (only show when not spectating) -->
+        <ReplayPanel v-if="store.status !== 'spectating'" />
       </div>
     </div>
   </div>
@@ -120,6 +152,7 @@ import { computed } from 'vue';
 import { useGameStore } from './store/game';
 import GameBoard from './components/GameBoard.vue';
 import ReplayPanel from './components/ReplayPanel.vue';
+import SpectatorPanel from './components/SpectatorPanel.vue';
 
 const store = useGameStore();
 
@@ -129,6 +162,7 @@ const statusText = computed(() => {
     case 'playing': return '对弈中';
     case 'finished': return '已结束';
     case 'replaying': return '回放中';
+    case 'spectating': return '观战中';
     default: return '';
   }
 });

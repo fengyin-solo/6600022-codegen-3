@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { BoardState, Move, GameRecord, AIConfig, GameStatus } from '../types';
+import type { BoardState, Move, GameRecord, AIConfig, GameStatus, OngoingGame } from '../types';
 
 const BOARD_SIZE = 15;
 const EMPTY = 0;
@@ -10,8 +10,6 @@ const WHITE = 2;
 function createEmptyBoard(): BoardState {
   return Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(EMPTY));
 }
-
-// --- AI: Minimax + Alpha-Beta Pruning ---
 
 const SCORE_TABLE: Record<string, number> = {
   'five': 1000000,
@@ -189,7 +187,13 @@ function getAIMove(board: BoardState, aiPlayer: number, depth: number): [number,
   return bestMove;
 }
 
-// --- Store ---
+function buildBoardFromMoves(moves: Move[]): BoardState {
+  const b = createEmptyBoard();
+  for (const m of moves) {
+    b[m.row][m.col] = m.player;
+  }
+  return b;
+}
 
 export const useGameStore = defineStore('game', () => {
   const board = ref<BoardState>(createEmptyBoard());
@@ -201,23 +205,60 @@ export const useGameStore = defineStore('game', () => {
   const aiConfig = ref<AIConfig>({ depth: 3, enabled: true, playerColor: WHITE });
   const isAiThinking = ref(false);
 
-  // Replay
+  const backendGameId = ref<string | null>(null);
+
   const replayMoves = ref<Move[]>([]);
   const replayIndex = ref(0);
   const replayBoard = ref<BoardState>(createEmptyBoard());
   const isReplayPlaying = ref(false);
   const replaySpeed = ref(1000);
 
+  const ongoingGames = ref<OngoingGame[]>([]);
+  const spectatingGameId = ref<string | null>(null);
+  const spectatingBoard = ref<BoardState>(createEmptyBoard());
+  const spectatingMoves = ref<Move[]>([]);
+  const spectatingCurrentPlayer = ref<number>(BLACK);
+  const spectatingWinner = ref<number | null>(null);
+  const spectatorCount = ref<number>(0);
+
   const currentMoveCount = computed(() => moves.value.length);
   const isGameOver = computed(() => status.value === 'finished');
 
-  function startGame() {
+  const spectatingMoveCount = computed(() => spectatingMoves.value.length);
+
+  async function api<T = unknown>(url: string, options?: RequestInit): Promise<T | null> {
+    try {
+      const res = await fetch(url, options);
+      if (!res.ok) return null;
+      return await res.json() as T;
+    } catch {
+      return null;
+    }
+  }
+
+  async function syncMoveToBackend(row: number, col: number) {
+    if (!backendGameId.value) return;
+    await api(`/api/game/${backendGameId.value}/move`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ row, col }),
+    });
+  }
+
+  async function startGame() {
     board.value = createEmptyBoard();
     currentPlayer.value = BLACK;
     moves.value = [];
     status.value = 'playing';
     winner.value = null;
     isAiThinking.value = false;
+
+    try {
+      const data = await api<{ id: string }>('/api/game/new', { method: 'POST' });
+      backendGameId.value = data?.id ?? null;
+    } catch {
+      backendGameId.value = null;
+    }
   }
 
   function placeStone(row: number, col: number): boolean {
@@ -228,6 +269,8 @@ export const useGameStore = defineStore('game', () => {
     board.value[row][col] = currentPlayer.value;
     const move: Move = { row, col, player: currentPlayer.value, timestamp: Date.now() };
     moves.value.push(move);
+
+    syncMoveToBackend(row, col);
 
     if (checkWinAt(board.value, row, col, currentPlayer.value)) {
       winner.value = currentPlayer.value;
@@ -355,12 +398,80 @@ export const useGameStore = defineStore('game', () => {
     return checkWinAt(board.value, row, col, board.value[row][col]);
   }
 
+  async function fetchOngoingGames() {
+    const data = await api<OngoingGame[]>('/api/game/ongoing');
+    if (data) {
+      ongoingGames.value = data;
+    }
+  }
+
+  let sseSource: EventSource | null = null;
+
+  function startSpectating(gameId: string) {
+    stopSpectating();
+
+    spectatingGameId.value = gameId;
+    spectatingBoard.value = createEmptyBoard();
+    spectatingMoves.value = [];
+    spectatingCurrentPlayer.value = BLACK;
+    spectatingWinner.value = null;
+    spectatorCount.value = 0;
+    status.value = 'spectating';
+
+    sseSource = new EventSource(`/api/game/${gameId}/spectate`);
+
+    sseSource.addEventListener('state', (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.moves) {
+          spectatingMoves.value = data.moves;
+        }
+        if (data.board) {
+          spectatingBoard.value = data.board;
+        }
+        if (data.currentPlayer !== undefined) {
+          spectatingCurrentPlayer.value = data.currentPlayer;
+        }
+        if (data.winner !== undefined) {
+          spectatingWinner.value = data.winner;
+        }
+      } catch {
+        // ignore parse errors
+      }
+    });
+
+    sseSource.onerror = () => {
+      sseSource?.close();
+      sseSource = null;
+    };
+  }
+
+  function stopSpectating() {
+    if (sseSource) {
+      sseSource.close();
+      sseSource = null;
+    }
+    spectatingGameId.value = null;
+    spectatingBoard.value = createEmptyBoard();
+    spectatingMoves.value = [];
+    spectatingCurrentPlayer.value = BLACK;
+    spectatingWinner.value = null;
+    spectatorCount.value = 0;
+    if (status.value === 'spectating') {
+      status.value = 'idle';
+    }
+  }
+
   return {
     board, currentPlayer, moves, status, winner, gameRecords, aiConfig, isAiThinking,
     replayMoves, replayIndex, replayBoard, isReplayPlaying, replaySpeed,
     currentMoveCount, isGameOver,
+    backendGameId,
+    ongoingGames, spectatingGameId, spectatingBoard, spectatingMoves,
+    spectatingCurrentPlayer, spectatingWinner, spectatorCount, spectatingMoveCount,
     startGame, placeStone, aiMove, saveRecord,
     startReplay, replayStepForward, replayStepBack, replayGoToStart, replayGoToEnd,
     toggleReplayPlay, setReplaySpeed, stopReplay, checkWin,
+    fetchOngoingGames, startSpectating, stopSpectating,
   };
 });

@@ -4,9 +4,14 @@
       ref="canvasRef"
       :width="canvasSize"
       :height="canvasSize"
-      class="cursor-pointer rounded-lg shadow-2xl"
+      :class="store.status === 'spectating' ? 'cursor-default' : 'cursor-pointer'"
+      class="rounded-lg shadow-2xl"
       @click="handleClick"
     />
+    <div v-if="store.status === 'spectating'" class="mt-2 flex items-center gap-2 text-sm">
+      <span class="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+      <span class="text-red-400">观战模式 — 无法落子</span>
+    </div>
   </div>
 </template>
 
@@ -22,12 +27,19 @@ const CELL_SIZE = 40;
 const PADDING = 30;
 const canvasSize = CELL_SIZE * (BOARD_SIZE - 1) + PADDING * 2;
 
-const boardData = computed(() =>
-  store.status === 'replaying' ? store.replayBoard : store.board
-);
-const movesList = computed(() =>
-  store.status === 'replaying' ? store.replayMoves.slice(0, store.replayIndex) : store.moves
-);
+const boardData = computed(() => {
+  if (store.status === 'replaying') return store.replayBoard;
+  if (store.status === 'spectating') return store.spectatingBoard;
+  return store.board;
+});
+
+const movesList = computed(() => {
+  if (store.status === 'replaying') return store.replayMoves.slice(0, store.replayIndex);
+  if (store.status === 'spectating') return store.spectatingMoves;
+  return store.moves;
+});
+
+const showMoveNumbers = computed(() => store.status === 'spectating');
 
 function drawBoard(ctx: CanvasRenderingContext2D) {
   ctx.fillStyle = '#1a3a2a';
@@ -49,7 +61,6 @@ function drawBoard(ctx: CanvasRenderingContext2D) {
     ctx.stroke();
   }
 
-  // Star points
   const starPoints = [[3, 3], [3, 11], [11, 3], [11, 11], [7, 7]];
   ctx.fillStyle = '#5aaa7a';
   for (const [r, c] of starPoints) {
@@ -59,7 +70,7 @@ function drawBoard(ctx: CanvasRenderingContext2D) {
   }
 }
 
-function drawStone(ctx: CanvasRenderingContext2D, row: number, col: number, player: number, isLast: boolean) {
+function drawStone(ctx: CanvasRenderingContext2D, row: number, col: number, player: number, isLast: boolean, moveNumber?: number) {
   const x = PADDING + col * CELL_SIZE;
   const y = PADDING + row * CELL_SIZE;
   const radius = CELL_SIZE * 0.42;
@@ -82,12 +93,27 @@ function drawStone(ctx: CanvasRenderingContext2D, row: number, col: number, play
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  if (isLast) {
+  if (showMoveNumbers.value && moveNumber !== undefined) {
+    ctx.fillStyle = player === 1 ? '#eee' : '#222';
+    ctx.font = `bold ${CELL_SIZE * 0.28}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(moveNumber), x, y + 1);
+  } else if (isLast) {
     ctx.beginPath();
     ctx.arc(x, y, 5, 0, Math.PI * 2);
     ctx.fillStyle = '#ef4444';
     ctx.fill();
   }
+}
+
+function buildMoveIndexMap(moves: { row: number; col: number }[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (let i = 0; i < moves.length; i++) {
+    const key = `${moves[i].row},${moves[i].col}`;
+    map.set(key, i + 1);
+  }
+  return map;
 }
 
 function render() {
@@ -101,12 +127,15 @@ function render() {
   const currentBoard = boardData.value;
   const currentMoves = movesList.value;
   const lastMove = currentMoves.length > 0 ? currentMoves[currentMoves.length - 1] : null;
+  const moveIndexMap = showMoveNumbers.value ? buildMoveIndexMap(currentMoves) : null;
 
   for (let r = 0; r < BOARD_SIZE; r++) {
     for (let c = 0; c < BOARD_SIZE; c++) {
       if (currentBoard[r][c] !== 0) {
         const isLast = lastMove !== null && lastMove.row === r && lastMove.col === c;
-        drawStone(ctx, r, c, currentBoard[r][c], isLast);
+        const key = `${r},${c}`;
+        const moveNumber = moveIndexMap ? moveIndexMap.get(key) : undefined;
+        drawStone(ctx, r, c, currentBoard[r][c], isLast, moveNumber);
       }
     }
   }
@@ -135,5 +164,5 @@ function handleClick(e: MouseEvent) {
 }
 
 onMounted(() => render());
-watch([boardData, () => store.replayIndex, () => store.status], () => render());
+watch([boardData, () => store.replayIndex, () => store.status, () => store.spectatingMoves.length], () => render());
 </script>
