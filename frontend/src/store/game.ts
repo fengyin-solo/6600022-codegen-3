@@ -221,6 +221,22 @@ export const useGameStore = defineStore('game', () => {
   const spectatingWinner = ref<number | null>(null);
   const spectatorCount = ref<number>(0);
 
+  interface SavedState {
+    status: GameStatus;
+    board: BoardState;
+    currentPlayer: number;
+    moves: Move[];
+    winner: number | null;
+    backendGameId: string | null;
+    isAiThinking: boolean;
+    replayMoves: Move[];
+    replayIndex: number;
+    replayBoard: BoardState;
+    isReplayPlaying: boolean;
+  }
+
+  const savedState = ref<SavedState | null>(null);
+
   const currentMoveCount = computed(() => moves.value.length);
   const isGameOver = computed(() => status.value === 'finished');
 
@@ -408,7 +424,23 @@ export const useGameStore = defineStore('game', () => {
   let sseSource: EventSource | null = null;
 
   function startSpectating(gameId: string) {
-    stopSpectating();
+    if (status.value !== 'spectating') {
+      savedState.value = {
+        status: status.value,
+        board: board.value.map(row => [...row]),
+        currentPlayer: currentPlayer.value,
+        moves: [...moves.value],
+        winner: winner.value,
+        backendGameId: backendGameId.value,
+        isAiThinking: isAiThinking.value,
+        replayMoves: [...replayMoves.value],
+        replayIndex: replayIndex.value,
+        replayBoard: replayBoard.value.map(row => [...row]),
+        isReplayPlaying: isReplayPlaying.value,
+      };
+    }
+
+    stopSpectating(true);
 
     spectatingGameId.value = gameId;
     spectatingBoard.value = createEmptyBoard();
@@ -446,7 +478,7 @@ export const useGameStore = defineStore('game', () => {
     };
   }
 
-  function stopSpectating() {
+  function stopSpectating(silent = false) {
     if (sseSource) {
       sseSource.close();
       sseSource = null;
@@ -457,8 +489,21 @@ export const useGameStore = defineStore('game', () => {
     spectatingCurrentPlayer.value = BLACK;
     spectatingWinner.value = null;
     spectatorCount.value = 0;
-    if (status.value === 'spectating') {
-      status.value = 'idle';
+
+    if (!silent && status.value === 'spectating' && savedState.value) {
+      const s = savedState.value;
+      status.value = s.status;
+      board.value = s.board;
+      currentPlayer.value = s.currentPlayer;
+      moves.value = s.moves;
+      winner.value = s.winner;
+      backendGameId.value = s.backendGameId;
+      isAiThinking.value = s.isAiThinking;
+      replayMoves.value = s.replayMoves;
+      replayIndex.value = s.replayIndex;
+      replayBoard.value = s.replayBoard;
+      isReplayPlaying.value = s.isReplayPlaying;
+      savedState.value = null;
     }
   }
 
